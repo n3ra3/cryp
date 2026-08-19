@@ -133,7 +133,13 @@ detector:
 
 # --- Storage ---------------------------------------------------------------
 storage:
-  db_path: "data/journal.sqlite"   # place on a persistent volume in production
+  # backend: auto | sqlite | postgres
+  #   auto     -> Postgres/Supabase if DATABASE_URL (env) is set, else SQLite
+  #   sqlite   -> always the local file below
+  #   postgres -> always Postgres (requires DATABASE_URL)
+  # DATABASE_URL is a SECRET and comes from the environment only (never here).
+  backend: auto
+  db_path: "data/journal.sqlite"   # used only for the SQLite backend
   csv_export_path: "data/trades_export.csv"
 
 # --- Health server ---------------------------------------------------------

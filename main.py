@@ -21,7 +21,7 @@ from scanner.config import load_config
 from scanner.datafeed import DataFeed, next_boundary_ms, timeframe_ms
 from scanner.indicators import compute_indicators
 from scanner.detector import detect
-from scanner.journal import Journal
+from scanner.journal import open_journal
 from scanner.paper_exec import PaperExecutor
 from scanner.telegram_bot import TelegramController
 from scanner.health import HealthServer
@@ -200,8 +200,9 @@ async def run() -> None:
     cfg = load_config()
     state = AppState(cfg)
 
-    journal = Journal(cfg["storage"]["db_path"])
+    journal = open_journal(cfg)
     state.journal = journal
+    log.info("journal backend: %s", type(journal).__name__)
 
     executor = PaperExecutor(cfg, journal)
     executor.restore()   # re-load OPEN trades so they survive restarts

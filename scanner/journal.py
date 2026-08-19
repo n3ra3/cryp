@@ -160,3 +160,25 @@ class Journal:
             for r in rows:
                 writer.writerow([r[c] for c in CSV_COLUMNS])
         return path
+
+
+def open_journal(cfg: dict):
+    """Pick the storage backend.
+
+    Postgres/Supabase when a DATABASE_URL is available (env var wins, then
+    storage.database_url); otherwise the local SQLite file. This keeps tests and
+    local runs on SQLite with zero extra dependencies, while production persists
+    to Supabase so nothing is lost across redeploys.
+    """
+    storage = cfg["storage"]
+    backend = storage.get("backend", "auto")
+    dsn = os.environ.get("DATABASE_URL") or storage.get("database_url")
+
+    if backend == "postgres" or (backend == "auto" and dsn):
+        if not dsn:
+            raise ValueError(
+                "storage backend is postgres but DATABASE_URL is not set"
+            )
+        from .pg_journal import PgJournal   # lazy: psycopg only needed for PG
+        return PgJournal(dsn)
+    return Journal(storage["db_path"])
