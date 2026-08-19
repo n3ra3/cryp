@@ -27,6 +27,7 @@ class StatsReport:
     max_drawdown_r: float = 0.0
     by_exchange: dict = field(default_factory=dict)
     by_symbol: dict = field(default_factory=dict)
+    by_timeframe: dict = field(default_factory=dict)
     by_reason: dict = field(default_factory=dict)
 
     def format_text(self) -> str:
@@ -38,6 +39,12 @@ class StatsReport:
             f"Expectancy: {self.expectancy_r:+.3f}R / trade",
             f"Total: {self.total_r:+.2f}R   Max DD: -{self.max_drawdown_r:.2f}R",
         ]
+        if self.by_timeframe:
+            per = ", ".join(
+                f"{tf} {d['total_r']:+.1f}R ({d['wins']}/{d['n']}, {d['total_r']/d['n']:+.2f}R avg)"
+                for tf, d in sorted(self.by_timeframe.items())
+            )
+            lines.append(f"By timeframe: {per}")
         if self.by_reason:
             reasons = ", ".join(f"{k}:{v}" for k, v in sorted(self.by_reason.items()))
             lines.append(f"Exits: {reasons}")
@@ -94,6 +101,7 @@ def compute_stats(trades: list[Trade]) -> StatsReport:
 
     rep.by_exchange = _bucket(closed, lambda t: t.exchange)
     rep.by_symbol = _bucket(closed, lambda t: t.symbol)
+    rep.by_timeframe = _bucket(closed, lambda t: t.timeframe)
     rep.by_reason = {
         r.value: sum(1 for t in closed if t.exit_reason is r)
         for r in ExitReason

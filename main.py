@@ -18,7 +18,7 @@ import signal as os_signal
 import time
 
 from scanner.config import load_config
-from scanner.datafeed import DataFeed, next_boundary_ms
+from scanner.datafeed import DataFeed, next_boundary_ms, timeframe_ms
 from scanner.indicators import compute_indicators
 from scanner.detector import detect
 from scanner.journal import Journal
@@ -51,14 +51,14 @@ class AppState:
         return sum(len(v) for v in self.markets.values())
 
 
-async def scan_market(state: AppState, feed: DataFeed, exchange: str, symbol: str) -> None:
+async def scan_market(state: AppState, feed: DataFeed, exchange: str, symbol: str,
+                      tf: str) -> None:
     cfg = state.cfg
     det_cfg = cfg["detector"]
-    tf = cfg["timeframe"]
     executor = state.executor
     key = (exchange, symbol, tf)
 
-    candles = await feed.fetch_closed(exchange, symbol)
+    candles = await feed.fetch_closed(exchange, symbol, tf)
     need = max(det_cfg["atr_period"], det_cfg["rsi_period"],
                det_cfg["ema_period"], det_cfg["swing_lookback"]) + 2
     if len(candles) < need:
@@ -122,8 +122,9 @@ async def resolve_universe(state: AppState, feed: DataFeed) -> None:
             syms = cfg.get("symbols") or []
         markets[exchange] = syms
     state.markets = markets
-    log.info("scanning %d markets across %d exchange(s)",
-             state.market_count(), len(markets))
+    log.info("scanning %d symbols x %d timeframe(s) %s across %d exchange(s)",
+             state.market_count(), len(cfg["timeframes"]), cfg["timeframes"],
+             len(markets))
 
 
 async def universe_refresh(state: AppState, feed: DataFeed) -> None:
@@ -141,12 +142,12 @@ async def universe_refresh(state: AppState, feed: DataFeed) -> None:
 
 
 async def _scan_one(state: AppState, feed: DataFeed, sem: asyncio.Semaphore,
-                    exchange: str, symbol: str) -> None:
+                    exchange: str, symbol: str, tf: str) -> None:
     async with sem:
         try:
-            await scan_market(state, feed, exchange, symbol)
+            await scan_market(state, feed, exchange, symbol, tf)
         except Exception:  # noqa: BLE001
-            log.exception("scan error for %s %s", exchange, symbol)
+            log.exception("scan error for %s %s %s", exchange, symbol, tf)
 
 
 async def scan_loop(state: AppState, feed: DataFeed) -> None:
@@ -156,14 +157,18 @@ async def scan_loop(state: AppState, feed: DataFeed) -> None:
     lag_sec = scan_cfg.get("boundary_lag_sec", 5)
     interval = scan_cfg.get("poll_interval_sec", 60)
     sem = asyncio.Semaphore(scan_cfg.get("concurrency", 8))
-    tf = cfg["timeframe"]
+    tfs = cfg["timeframes"]
+    # align to the SMALLEST timeframe; larger ones simply see no new candle on
+    # most passes (scan_market no-ops via last_ts), which is cheap.
+    min_tf = min(tfs, key=timeframe_ms)
 
     while True:
         t0 = time.time()
         tasks = [
-            _scan_one(state, feed, sem, ex, sym)
+            _scan_one(state, feed, sem, ex, sym, tf)
             for ex, syms in state.markets.items()
             for sym in syms
+            for tf in tfs
         ]
         if tasks:
             await asyncio.gather(*tasks)
@@ -171,7 +176,7 @@ async def scan_loop(state: AppState, feed: DataFeed) -> None:
         if align:
             # sleep until just after the next candle close, then do one pass
             now_ms = int(time.time() * 1000)
-            wake_ms = next_boundary_ms(tf, now_ms) + int(lag_sec * 1000)
+            wake_ms = next_boundary_ms(min_tf, now_ms) + int(lag_sec * 1000)
             delay = max(1.0, (wake_ms - now_ms) / 1000.0)
         else:
             delay = max(1.0, interval - (time.time() - t0))

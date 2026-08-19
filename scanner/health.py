@@ -44,4 +44,5 @@ class HealthServer:
             "paused": s.paused,
             "open_trades": s.executor.open_trade_count() if s.executor else 0,
             "markets": s.market_count(),
+            "timeframes": s.cfg.get("timeframes", []),
         })

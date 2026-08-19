@@ -156,8 +156,9 @@ class DataFeed:
                  uni_cfg.get("market_type"), uni_cfg.get("top_n"))
         return syms
 
-    async def fetch_closed(self, exchange_id: str, symbol: str) -> list[Candle]:
-        """Fetch closed candles for one market, retrying with backoff.
+    async def fetch_closed(self, exchange_id: str, symbol: str,
+                           timeframe: str | None = None) -> list[Candle]:
+        """Fetch closed candles for one market/timeframe, retrying with backoff.
 
         Returns [] only if the exchange object is missing; otherwise it keeps
         retrying transient failures (the caller polls again next cycle).
@@ -167,13 +168,14 @@ class DataFeed:
             log.error("unknown exchange id: %s", exchange_id)
             return []
 
+        tf = timeframe or self.timeframe
         sym = self.normalize_symbol(symbol)
         delay = self.bo_base
         attempt = 0
         while True:
             try:
-                rows = await ex.fetch_ohlcv(sym, timeframe=self.timeframe, limit=self.limit)
-                candles = only_closed(rows, self.timeframe)
+                rows = await ex.fetch_ohlcv(sym, timeframe=tf, limit=self.limit)
+                candles = only_closed(rows, tf)
                 if attempt:
                     log.info("%s %s recovered after %d retries", exchange_id, sym, attempt)
                 return candles

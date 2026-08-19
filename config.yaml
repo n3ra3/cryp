@@ -10,7 +10,12 @@
 exchanges:
   - mexc
 
-timeframe: "1m"           # 1m scalping mode (1m/5m/15m/1h all supported)
+# Run several timeframes in parallel to compare their edge. Each timeframe keeps
+# its own paper trades in the journal (tagged by timeframe) over one shared
+# universe, so /stats can show which timeframe actually works better.
+timeframes:
+  - "5m"
+  - "15m"
 
 # How the symbol universe is chosen:
 #   auto   -> discover every liquid <quote> pair on each exchange (see `universe`)
