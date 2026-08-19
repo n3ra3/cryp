@@ -1,0 +1,160 @@
+"""Telegram alerts + control commands.
+
+Secrets come from env ONLY:  TELEGRAM_TOKEN, TELEGRAM_CHAT_ID.
+If TELEGRAM_TOKEN is unset the controller degrades to a logging no-op so the
+scanner still runs (useful for local dev / CI).
+
+Commands: /status /stats /pause /resume /export
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Optional
+
+from .models import Signal, Side
+from . import stats as stats_mod
+
+log = logging.getLogger("telegram")
+
+
+# --------------------------------------------------------------------------- #
+#  Pure formatter (unit-testable, no network)
+# --------------------------------------------------------------------------- #
+def _fmt(price: float) -> str:
+    """Price formatting that copes with both BTC (64,230) and memecoins (0.00001234)."""
+    ap = abs(price)
+    if ap >= 100:
+        return f"{price:,.2f}"
+    if ap >= 1:
+        return f"{price:,.4f}"
+    if ap >= 0.01:
+        return f"{price:.6f}"
+    return f"{price:.8f}"
+
+
+def format_alert(sig: Signal) -> str:
+    arrow = "🔴 SHORT" if sig.side is Side.SHORT else "🟢 LONG"
+    disp_symbol = sig.symbol.split(":")[0]   # 'BTC/USDT:USDT' -> 'BTC/USDT'
+    price = sig.signal_close
+    level = sig.swing_level
+    level_off = (price - level) / level * 100 if level else 0.0
+    stop_pct = abs(sig.stop_price - price) / price * 100 if price else 0.0
+    tgt_pct = abs(sig.target_price - price) / price * 100 if price else 0.0
+    fib = "0.5"
+    return (
+        f"⚡ {arrow} — {disp_symbol} ({sig.exchange}, {sig.timeframe})\n"
+        f"Price: {_fmt(price)} | RSI {sig.rsi_at_signal:.0f}\n"
+        f"Спайк: {sig.impulse_pct*100:.1f}% | растяжение {sig.stretch_atr:.1f}×ATR\n"
+        f"Уровень: swing {_fmt(level)} ({level_off:+.2f}%)\n"
+        f"Stop: {_fmt(sig.stop_price)} ({stop_pct:.2f}%) | "
+        f"Target({fib}): {_fmt(sig.target_price)} ({tgt_pct:.2f}%)\n"
+        f"R:R ≈ {sig.rr:.1f}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+#  Controller
+# --------------------------------------------------------------------------- #
+class TelegramController:
+    def __init__(self, state):
+        self.state = state
+        self.token = os.environ.get("TELEGRAM_TOKEN")
+        self.chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+        self.enabled = bool(self.token and self.chat_id)
+        self.app = None  # python-telegram-bot Application
+
+    async def start(self) -> None:
+        if not self.enabled:
+            log.warning("TELEGRAM_TOKEN/CHAT_ID not set — Telegram disabled "
+                        "(alerts will be logged only).")
+            return
+        # imported lazily so the package works without the dep in some CI paths
+        from telegram.ext import ApplicationBuilder, CommandHandler
+
+        self.app = ApplicationBuilder().token(self.token).build()
+        self.app.add_handler(CommandHandler("status", self._cmd_status))
+        self.app.add_handler(CommandHandler("stats", self._cmd_stats))
+        self.app.add_handler(CommandHandler("pause", self._cmd_pause))
+        self.app.add_handler(CommandHandler("resume", self._cmd_resume))
+        self.app.add_handler(CommandHandler("export", self._cmd_export))
+        await self.app.initialize()
+        await self.app.start()
+        await self.app.updater.start_polling(drop_pending_updates=True)
+        log.info("Telegram controller started.")
+
+    async def stop(self) -> None:
+        if self.app:
+            try:
+                await self.app.updater.stop()
+                await self.app.stop()
+                await self.app.shutdown()
+            except Exception:  # noqa: BLE001
+                log.exception("error stopping telegram app")
+
+    # ------------------------------------------------------------------ #
+    async def send_alert(self, sig: Signal) -> None:
+        text = format_alert(sig)
+        if not self.enabled or not self.app:
+            log.info("[ALERT]\n%s", text)
+            return
+        try:
+            await self.app.bot.send_message(chat_id=self.chat_id, text=text)
+        except Exception:  # noqa: BLE001
+            log.exception("failed to send telegram alert")
+
+    async def send_text(self, text: str) -> None:
+        if not self.enabled or not self.app:
+            log.info("[MSG] %s", text)
+            return
+        try:
+            await self.app.bot.send_message(chat_id=self.chat_id, text=text)
+        except Exception:  # noqa: BLE001
+            log.exception("failed to send telegram message")
+
+    # --- command handlers --------------------------------------------- #
+    def _authorized(self, update) -> bool:
+        # only respond in the configured chat
+        return str(update.effective_chat.id) == str(self.chat_id)
+
+    async def _cmd_status(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        import time
+        s = self.state
+        up = int(time.time() - s.started_at)
+        await update.message.reply_text(
+            f"🟢 running | uptime {up//3600}h{(up%3600)//60}m\n"
+            f"paused: {s.paused}\n"
+            f"markets scanned: {s.market_count()}\n"
+            f"open paper trades: {s.executor.open_trade_count()}"
+        )
+
+    async def _cmd_stats(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        rep = stats_mod.compute_stats(self.state.journal.all_trades())
+        await update.message.reply_text(rep.format_text())
+
+    async def _cmd_pause(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        self.state.paused = True
+        await update.message.reply_text("⏸ scanning paused (open trades keep tracking).")
+
+    async def _cmd_resume(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        self.state.paused = False
+        await update.message.reply_text("▶️ scanning resumed.")
+
+    async def _cmd_export(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        path = self.state.journal.export_csv(self.state.cfg["storage"]["csv_export_path"])
+        try:
+            with open(path, "rb") as fh:
+                await update.message.reply_document(document=fh, filename="trades_export.csv")
+        except Exception:  # noqa: BLE001
+            await update.message.reply_text(f"exported to {path} (could not attach file)")

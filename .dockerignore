@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tests/
+data/*.sqlite
+data/*.csv
+*.md
+.env
+.venv/
+venv/

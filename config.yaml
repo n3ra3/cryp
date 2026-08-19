@@ -1,0 +1,137 @@
+# =============================================================================
+# Paper-Trading Scanner — configuration
+# =============================================================================
+# NOTE: This bot NEVER trades. Only public market-data endpoints are used.
+# No trading API keys anywhere. Telegram secrets come from env vars only.
+# =============================================================================
+
+# --- Markets to scan -------------------------------------------------------
+# ccxt exchange ids. Only public OHLCV endpoints are polled.
+exchanges:
+  - mexc
+
+timeframe: "1m"           # 1m scalping mode (1m/5m/15m/1h all supported)
+
+# How the symbol universe is chosen:
+#   auto   -> discover every liquid <quote> pair on each exchange (see `universe`)
+#   manual -> scan only the explicit `symbols` list below
+symbols_mode: auto
+
+# Used only when symbols_mode == manual
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+
+# Auto-discovery of the trading universe (symbols_mode == auto)
+universe:
+  quote: USDT              # only pairs quoted in this asset
+  market_type: swap        # spot | swap   (swap = perpetual futures — shorts work)
+  top_n: 100               # keep the top-N by 24h turnover; null = keep all matches
+  min_quote_volume: 2000000  # drop contracts below this 24h turnover (illiquid)
+  refresh_hours: 12        # re-scan the universe this often (new listings / volume shifts)
+  blacklist:               # never scan these (exact base symbol match)
+    # stablecoins / fiat
+    - USDC
+    - FDUSD
+    - TUSD
+    - DAI
+    - USDe
+    - EUR
+    - BUSD
+    # metals / commodities (trade on exchange hours, gap — not crypto)
+    - XAU
+    - XAUT
+    - XAG
+    - SILVER
+    - GOLD
+    - PAXG
+    - WTI
+    - USOIL
+    - UKOIL
+    # tokenized indices
+    - SPX500
+    - US500
+    - NAS100
+    - DJI
+    # tokenized ETFs / leveraged equity
+    - SOXL
+    - SOXS
+    - TQQQ
+    - SQQQ
+  blacklist_contains:      # exclude any base CONTAINING one of these substrings
+    - STOCK               # MEXC tokenized stocks: SNDKSTOCK, SKHYNIXSTOCK, MUSTOCK...
+
+# --- Polling ---------------------------------------------------------------
+# With many symbols we align polling to candle closes instead of hammering the
+# REST API every minute (a 15m candle only closes every 15 minutes).
+scan:
+  align_to_candle: true      # wake up right after each candle closes, then one pass
+  boundary_lag_sec: 5        # wait this long after close so the exchange has the bar
+  concurrency: 8             # max simultaneous OHLCV requests per pass (rate-limit safety)
+  poll_interval_sec: 60      # fallback cadence when align_to_candle == false
+candle_fetch_limit: 200      # candles per request (>= swing_lookback + buffer)
+
+# --- Reconnect / backoff ---------------------------------------------------
+backoff:
+  base_sec: 2
+  max_sec: 120
+  factor: 2.0
+
+# --- Risk model ------------------------------------------------------------
+risk:
+  paper_equity: 500.0          # virtual capital in USD
+  risk_per_trade_pct: 0.01     # 1% of equity risked per trade
+  max_daily_losses: 3          # consecutive losses -> "day halted" flag (stat only, does NOT block)
+
+# --- Paper execution model -------------------------------------------------
+execution:
+  taker_fee_pct: 0.0002        # 0.02% per leg — MEXC USDT-perp taker (entry AND exit)
+  slippage_pct: 0.0003         # 0.03% per leg
+  max_bars_in_trade: 60        # timeout: close at market after N bars (60 = 1h on 1m)
+  # Entry fills at the OPEN of the next candle after the signal.
+  # If a single candle touches BOTH stop and target -> STOP wins (conservative).
+
+# --- Detector thresholds ---------------------------------------------------
+# Tuned as a first draft for 1m scalping. Every value is a PLACEHOLDER — tune
+# it during the ~2-week research window against the measured win rate.
+detector:
+  # -- Indicator periods (in candles; on 1m these are minutes) --
+  atr_period: 14               # PLACEHOLDER — tune later
+  rsi_period: 14               # PLACEHOLDER — tune later
+  ema_period: 20               # PLACEHOLDER — tune later
+  swing_lookback: 30           # PLACEHOLDER — tune later  (30 = last 30 min on 1m)
+
+  # -- The SPIKE / impulse filter (this is your "сильный скачок") --
+  # The impulse leg (swing origin -> spike) must be BOTH big enough and recent.
+  impulse_min_pct: 0.010       # PLACEHOLDER — tune later  (leg >= 1.0% move)
+  impulse_min_atr: 3.0         # PLACEHOLDER — tune later  (leg >= 3 x ATR)
+  impulse_lookback: 6          # PLACEHOLDER — tune later  (spike within last N bars)
+
+  # -- Stretch / exhaustion (secondary confirmation) --
+  stretch_atr_mult: 2.0        # PLACEHOLDER — tune later  (close vs EMA in ATR units)
+  rsi_overbought: 76           # PLACEHOLDER — tune later
+  rsi_oversold: 24             # PLACEHOLDER — tune later
+
+  # -- Level proximity --
+  level_tolerance_pct: 0.002   # PLACEHOLDER — tune later  (0.2% around swing hi/lo)
+
+  # -- Stop / target geometry --
+  stop_buffer_atr: 0.3         # PLACEHOLDER — tune later  (extra ATR beyond the spike)
+  fib_target: 0.5              # PLACEHOLDER — tune later  (50% retracement target)
+  fib_partial: 0.382           # PLACEHOLDER — tune later  (optional partial-TP level)
+
+  # -- Filters --
+  min_rr: 1.3                  # PLACEHOLDER — tune later  (skip setups below this R:R)
+  enable_long: true
+  enable_short: true
+
+# --- Storage ---------------------------------------------------------------
+storage:
+  db_path: "data/journal.sqlite"   # place on a persistent volume in production
+  csv_export_path: "data/trades_export.csv"
+
+# --- Health server ---------------------------------------------------------
+health:
+  host: "0.0.0.0"
+  port: 8000
