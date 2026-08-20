@@ -109,6 +109,25 @@ def test_pullback_too_far_is_rejected():
     assert sig is None
 
 
+def test_adx_filter_blocks_strong_trend():
+    """The synthetic short setup is a sharp pump -> high ADX. With max_adx set
+    low, the regime filter must reject it; without max_adx it still fires."""
+    from scanner.indicators import compute_indicators, adx
+
+    candles = build_short_setup()
+    trend_adx = adx(candles, 14)
+    assert trend_adx is not None and trend_adx >= 20   # the pump is a strong trend
+
+    cfg_no_filter = _cfg()                    # no max_adx -> fires
+    ind = _with_meta(candles, cfg_no_filter)
+    assert detect(candles, ind, cfg_no_filter) is not None
+
+    cfg_filtered = _cfg()
+    cfg_filtered["detector"]["max_adx"] = 20   # range-only -> blocked
+    ind2 = _with_meta(candles, cfg_filtered)
+    assert detect(candles, ind2, cfg_filtered) is None
+
+
 def test_flat_market_no_false_signal():
     cfg_local = _cfg()
     candles = [make_candle(i, 100, 100.5, 99.5, 100) for i in range(60)]

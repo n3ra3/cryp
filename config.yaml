@@ -138,6 +138,7 @@ detector:
 
   # -- Filters --
   min_rr: 1.3                  # PLACEHOLDER — tune later  (skip setups below this R:R)
+  max_adx: 20                  # PLACEHOLDER — tune later  (only fade when ADX<this = range, not trend)
   enable_long: true
   enable_short: true
 

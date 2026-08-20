@@ -120,6 +120,60 @@ def rsi(values: Sequence[float], period: int) -> Optional[float]:
 
 
 # --------------------------------------------------------------------------- #
+#  ADX (Wilder) — trend-strength. High = trending, low = ranging.
+# --------------------------------------------------------------------------- #
+def adx_series(candles: Sequence[Candle], period: int = 14) -> list[Optional[float]]:
+    n = len(candles)
+    out: list[Optional[float]] = [None] * n
+    if n < period * 2:
+        return out
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    tr = [0.0] * n
+    for i in range(1, n):
+        up = candles[i].high - candles[i - 1].high
+        down = candles[i - 1].low - candles[i].low
+        plus_dm[i] = up if (up > down and up > 0) else 0.0
+        minus_dm[i] = down if (down > up and down > 0) else 0.0
+        pc = candles[i - 1].close
+        tr[i] = max(candles[i].high - candles[i].low,
+                    abs(candles[i].high - pc), abs(candles[i].low - pc))
+
+    s_tr = sum(tr[1:period + 1])
+    s_pdm = sum(plus_dm[1:period + 1])
+    s_mdm = sum(minus_dm[1:period + 1])
+    dx = [None] * n
+
+    def _dx(pdm, mdm, tr_):
+        if tr_ == 0:
+            return 0.0
+        p = 100 * pdm / tr_
+        m = 100 * mdm / tr_
+        return (100 * abs(p - m) / (p + m)) if (p + m) > 0 else 0.0
+
+    dx[period] = _dx(s_pdm, s_mdm, s_tr)
+    for i in range(period + 1, n):
+        s_tr = s_tr - s_tr / period + tr[i]
+        s_pdm = s_pdm - s_pdm / period + plus_dm[i]
+        s_mdm = s_mdm - s_mdm / period + minus_dm[i]
+        dx[i] = _dx(s_pdm, s_mdm, s_tr)
+
+    first = period * 2 - 1
+    seed = [dx[j] for j in range(period, first + 1)]
+    adx = sum(seed) / period
+    out[first] = adx
+    for i in range(first + 1, n):
+        adx = (adx * (period - 1) + dx[i]) / period
+        out[i] = adx
+    return out
+
+
+def adx(candles: Sequence[Candle], period: int = 14) -> Optional[float]:
+    s = adx_series(candles, period)
+    return s[-1] if s else None
+
+
+# --------------------------------------------------------------------------- #
 #  Swing high / low over a lookback window
 # --------------------------------------------------------------------------- #
 def swing_high(candles: Sequence[Candle], lookback: int) -> tuple[float, int]:
@@ -160,6 +214,7 @@ def compute_indicators(candles: Sequence[Candle], det_cfg: dict) -> Optional[dic
     _ema = ema(closes, ema_p)
     if _atr is None or _rsi is None or _ema is None:
         return None
+    _adx = adx(candles, 14)   # may be None if not enough history
 
     sh_price, sh_idx = swing_high(candles, swing_lb)
     sl_price, sl_idx = swing_low(candles, swing_lb)
@@ -168,6 +223,7 @@ def compute_indicators(candles: Sequence[Candle], det_cfg: dict) -> Optional[dic
         "atr": _atr,
         "rsi": _rsi,
         "ema": _ema,
+        "adx": _adx,
         "swing_high": sh_price,
         "swing_high_idx": sh_idx,
         "swing_low": sl_price,

@@ -38,6 +38,15 @@ def detect(candles: Sequence[Candle], indicators: dict, config: dict) -> Optiona
     if atr <= 0:
         return None
 
+    # Regime filter: only fade in a range / weak trend. In a strong trend the
+    # pump keeps running and stops us out. Backtested (both exchanges, 1000+
+    # trades) ADX<20 ~3x'd expectancy. Skipped when max_adx is unset.
+    max_adx = det.get("max_adx")
+    if max_adx is not None:
+        _adx = indicators.get("adx")
+        if _adx is not None and _adx >= max_adx:
+            return None
+
     # signed stretch of the close away from the EMA, in ATR units
     stretch = (last.close - ema) / atr
 
