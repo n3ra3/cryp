@@ -65,44 +65,44 @@ def detect(candles: Sequence[Candle], indicators: dict, config: dict) -> Optiona
 def _try_short(candles, last, prev, ind, det, meta, atr, rsi, stretch) -> Optional[Signal]:
     swing_high = ind["swing_high"]
     swing_high_idx = ind["swing_high_idx"]
-
-    # 1) Over-extension: stretched above EMA OR RSI overbought
-    stretched = stretch >= det["stretch_atr_mult"]
-    overbought = rsi >= det["rsi_overbought"]
-    if not (stretched or overbought):
-        return None
-
-    # 2) Price parked at a recent swing high (within tolerance)
     if swing_high <= 0:
         return None
-    dist_pct = abs(last.close - swing_high) / swing_high
-    if dist_pct > det["level_tolerance_pct"]:
-        return None
 
-    # 3) Bearish rejection confirmation: down-close AND below prior candle high
-    if not (last.bearish and last.close < prev.high):
-        return None
-
-    # 4/5) Stop above the spike high + ATR buffer
-    stop = swing_high + det["stop_buffer_atr"] * atr
-
-    # 6) Impulse leg = swing low (before the spike high) -> swing high.
-    #    Target = fib retracement of that leg.
+    # 1) SPIKE: impulse leg big + fresh + CONFIRMED (peak already rolled over).
     leg_origin = _leg_low_before(candles, swing_high_idx)
     leg = swing_high - leg_origin
     if leg <= 0:
         return None
-
-    # -- SPIKE filter: the impulse must be BIG enough and RECENT enough --
     impulse_pct = _spike_ok(candles, swing_high_idx, leg, leg_origin, atr, det)
     if impulse_pct is None:
         return None
 
+    # 2) Exhaustion: stretched above EMA OR RSI overbought OR the spike itself is
+    #    already huge (a 30%+ pump IS exhaustion; RSI/stretch fade at the peak).
+    stretched = stretch >= det["stretch_atr_mult"]
+    overbought = rsi >= det["rsi_overbought"]
+    huge = impulse_pct >= det.get("big_spike_exempt_pct", 1.0)
+    if not (stretched or overbought or huge):
+        return None
+
+    # 3) Retracement has STARTED: price pulled back off the peak within a sane
+    #    window (fade enters as the move rolls over, not at the very high).
+    pullback = (swing_high - last.close) / swing_high
+    pmin = det.get("pullback_min_pct", 0.0)
+    pmax = det.get("pullback_max_pct", 0.10)
+    if not (pmin <= pullback <= pmax):
+        return None
+
+    # 4) Bearish rejection confirmation: down-close AND below prior candle high
+    if not (last.bearish and last.close < prev.high):
+        return None
+
+    # 5) Stop above the spike high + buffer; target = fib retrace of the leg
+    stop = swing_high + det["stop_buffer_atr"] * atr
     target = swing_high - det["fib_target"] * leg
     partial = swing_high - det["fib_partial"] * leg
 
-    entry_ref = last.close
-    rr = _rr(entry_ref, stop, target, Side.SHORT)
+    rr = _rr(last.close, stop, target, Side.SHORT)
     if rr is None:
         return None
 
@@ -122,39 +122,42 @@ def _try_short(candles, last, prev, ind, det, meta, atr, rsi, stretch) -> Option
 def _try_long(candles, last, prev, ind, det, meta, atr, rsi, stretch) -> Optional[Signal]:
     swing_low = ind["swing_low"]
     swing_low_idx = ind["swing_low_idx"]
-
-    stretched = stretch <= -det["stretch_atr_mult"]
-    oversold = rsi <= det["rsi_oversold"]
-    if not (stretched or oversold):
-        return None
-
     if swing_low <= 0:
         return None
-    dist_pct = abs(last.close - swing_low) / swing_low
-    if dist_pct > det["level_tolerance_pct"]:
-        return None
 
-    # bullish rejection: up-close AND above prior candle low
-    if not (last.bullish and last.close > prev.low):
-        return None
-
-    stop = swing_low - det["stop_buffer_atr"] * atr
-
+    # 1) SPIKE (mirror): down-impulse big + fresh + CONFIRMED (low rolled over).
     leg_origin = _leg_high_before(candles, swing_low_idx)
     leg = leg_origin - swing_low
     if leg <= 0:
         return None
-
-    # -- SPIKE filter (mirror of the short side) --
     impulse_pct = _spike_ok(candles, swing_low_idx, leg, leg_origin, atr, det)
     if impulse_pct is None:
         return None
 
+    # 2) Exhaustion: stretched below EMA OR RSI oversold OR the dump is huge.
+    stretched = stretch <= -det["stretch_atr_mult"]
+    oversold = rsi <= det["rsi_oversold"]
+    huge = impulse_pct >= det.get("big_spike_exempt_pct", 1.0)
+    if not (stretched or oversold or huge):
+        return None
+
+    # 3) Bounce has STARTED: price pulled back up off the low within the window
+    pullback = (last.close - swing_low) / swing_low
+    pmin = det.get("pullback_min_pct", 0.0)
+    pmax = det.get("pullback_max_pct", 0.10)
+    if not (pmin <= pullback <= pmax):
+        return None
+
+    # 4) bullish rejection: up-close AND above prior candle low
+    if not (last.bullish and last.close > prev.low):
+        return None
+
+    # 5) stop below the spike low + buffer; target = fib retrace up
+    stop = swing_low - det["stop_buffer_atr"] * atr
     target = swing_low + det["fib_target"] * leg
     partial = swing_low + det["fib_partial"] * leg
 
-    entry_ref = last.close
-    rr = _rr(entry_ref, stop, target, Side.LONG)
+    rr = _rr(last.close, stop, target, Side.LONG)
     if rr is None:
         return None
 
@@ -181,11 +184,15 @@ def _spike_ok(candles, spike_idx: int, leg: float, leg_origin: float,
 
     Thresholds default to 'off' when absent, so older configs/tests still work.
     """
+    bars_since = (len(candles) - 1) - spike_idx
     lookback = det.get("impulse_lookback")
-    if lookback is not None:
-        bars_since = (len(candles) - 1) - spike_idx
-        if bars_since > lookback:
-            return None
+    if lookback is not None and bars_since > lookback:
+        return None
+    # Peak CONFIRMED: the extreme must be at least `peak_confirm_bars` old, i.e.
+    # price has NOT made a new extreme for that many bars -> the pump has rolled
+    # over. This is what stops us from shorting into a still-rising pump.
+    if bars_since < det.get("peak_confirm_bars", 0):
+        return None
 
     leg_pct = leg / leg_origin if leg_origin > 0 else 0.0
     leg_atr = leg / atr if atr > 0 else 0.0

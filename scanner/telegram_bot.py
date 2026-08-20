@@ -39,7 +39,7 @@ def format_alert(sig: Signal) -> str:
     disp_symbol = sig.symbol.split(":")[0]   # 'BTC/USDT:USDT' -> 'BTC/USDT'
     price = sig.signal_close
     level = sig.swing_level
-    level_off = (price - level) / level * 100 if level else 0.0
+    pullback_off = abs(price - level) / level * 100 if level else 0.0
     stop_pct = abs(sig.stop_price - price) / price * 100 if price else 0.0
     tgt_pct = abs(sig.target_price - price) / price * 100 if price else 0.0
     fib = "0.5"
@@ -47,7 +47,7 @@ def format_alert(sig: Signal) -> str:
         f"⚡ {arrow} — {disp_symbol} ({sig.exchange}, {sig.timeframe})\n"
         f"Price: {_fmt(price)} | RSI {sig.rsi_at_signal:.0f}\n"
         f"Спайк: {sig.impulse_pct*100:.1f}% | растяжение {sig.stretch_atr:.1f}×ATR\n"
-        f"Уровень: swing {_fmt(level)} ({level_off:+.2f}%)\n"
+        f"Пик {_fmt(level)} | откат {pullback_off:.1f}%\n"
         f"Stop: {_fmt(sig.stop_price)} ({stop_pct:.2f}%) | "
         f"Target({fib}): {_fmt(sig.target_price)} ({tgt_pct:.2f}%)\n"
         f"R:R ≈ {sig.rr:.1f}"

@@ -96,6 +96,19 @@ def test_stale_spike_is_rejected():
     assert sig is None
 
 
+def test_pullback_too_far_is_rejected():
+    """If price has already fallen far below the peak (retrace almost done),
+    it's too late to fade — must NOT fire."""
+    cfg_local = _cfg()
+    cfg_local["detector"]["pullback_max_pct"] = 0.05   # 5% window
+    candles = build_short_setup()
+    # replace the confirmation bar with one that closed ~9% below the 110 high
+    candles[-1] = make_candle(54, 109.9, 109.95, 99.5, 100.0)  # deep drop, close 100
+    ind = _with_meta(candles, cfg_local)
+    sig = detect(candles, ind, cfg_local) if ind else None
+    assert sig is None
+
+
 def test_flat_market_no_false_signal():
     cfg_local = _cfg()
     candles = [make_candle(i, 100, 100.5, 99.5, 100) for i in range(60)]

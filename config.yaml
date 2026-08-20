@@ -7,15 +7,20 @@
 
 # --- Markets to scan -------------------------------------------------------
 # ccxt exchange ids. Only public OHLCV endpoints are polled.
+# Each exchange is scanned INDEPENDENTLY: its own universe, its own signals,
+# its own paper trades (tagged by exchange). There is NO cross-exchange
+# confirmation — a setup on MEXC does not need to appear on Bybit and vice versa.
 exchanges:
   - mexc
+  - bybit
 
-# Run several timeframes in parallel to compare their edge. Each timeframe keeps
-# its own paper trades in the journal (tagged by timeframe) over one shared
-# universe, so /stats can show which timeframe actually works better.
+# Backtests (MEXC + Bybit, 1000+ trades each) showed the fade only has an edge on
+# HIGHER timeframes: 5m/15m were net-losing, 1h/4h were net-positive on BOTH
+# exchanges. Each timeframe keeps its own paper trades, tagged, so /stats can
+# compare them live.
 timeframes:
-  - "5m"
-  - "15m"
+  - "1h"
+  - "4h"
 
 # How the symbol universe is chosen:
 #   auto   -> discover every liquid <quote> pair on each exchange (see `universe`)
@@ -32,8 +37,8 @@ symbols:
 universe:
   quote: USDT              # only pairs quoted in this asset
   market_type: swap        # spot | swap   (swap = perpetual futures — shorts work)
-  top_n: 100               # keep the top-N by 24h turnover; null = keep all matches
-  min_quote_volume: 2000000  # drop contracts below this 24h turnover (illiquid)
+  top_n: 150               # keep the top-N by 24h turnover; null = keep all matches
+  min_quote_volume: 500000   # lower floor: big % pumps happen on smaller-cap coins
   refresh_hours: 12        # re-scan the universe this often (new listings / volume shifts)
   blacklist:               # never scan these (exact base symbol match)
     # stablecoins / fiat
@@ -109,17 +114,22 @@ detector:
 
   # -- The SPIKE / impulse filter (this is your "сильный скачок") --
   # The impulse leg (swing origin -> spike) must be BOTH big enough and recent.
-  impulse_min_pct: 0.010       # PLACEHOLDER — tune later  (leg >= 1.0% move)
-  impulse_min_atr: 3.0         # PLACEHOLDER — tune later  (leg >= 3 x ATR)
-  impulse_lookback: 6          # PLACEHOLDER — tune later  (spike within last N bars)
+  # Set to fade BIG memecoin-style moves (30%+), the way you traded by hand.
+  impulse_min_pct: 0.30        # PLACEHOLDER — tune later  (leg >= 30% move!)
+  impulse_min_atr: 3.0         # PLACEHOLDER — tune later  (leg >= 3 x ATR; ~always true at 30%)
+  impulse_lookback: 8          # PLACEHOLDER — tune later  (spike within last N bars)
+  peak_confirm_bars: 3         # PLACEHOLDER — tune later  (peak must be >=N bars old = pump stopped)
+  big_spike_exempt_pct: 0.20   # PLACEHOLDER — tune later  (a >=20% spike counts as exhaustion by itself)
 
   # -- Stretch / exhaustion (secondary confirmation) --
   stretch_atr_mult: 2.0        # PLACEHOLDER — tune later  (close vs EMA in ATR units)
   rsi_overbought: 76           # PLACEHOLDER — tune later
   rsi_oversold: 24             # PLACEHOLDER — tune later
 
-  # -- Level proximity --
-  level_tolerance_pct: 0.002   # PLACEHOLDER — tune later  (0.2% around swing hi/lo)
+  # -- Retracement window (fade enters as the pump ROLLS OVER, not at the peak) --
+  # How far price has pulled back off the spike extreme at entry.
+  pullback_min_pct: 0.0        # PLACEHOLDER — tune later  (>=0: any rollover counts)
+  pullback_max_pct: 0.10       # PLACEHOLDER — tune later  (skip if already >10% off peak — too late)
 
   # -- Stop / target geometry --
   stop_buffer_atr: 0.3         # PLACEHOLDER — tune later  (extra ATR beyond the spike)
