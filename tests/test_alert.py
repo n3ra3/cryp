@@ -1,7 +1,20 @@
 """Alert formatting + exchange deep-link building."""
 
-from scanner.telegram_bot import build_market_url, format_alert
+from scanner.telegram_bot import (
+    build_market_url, build_tradingview_url, build_dex_url, format_alert,
+)
 from scanner.models import Signal, Side
+
+
+def test_tradingview_url():
+    assert build_tradingview_url("mexc", "COW/USDT:USDT") == \
+        "https://www.tradingview.com/chart/?symbol=MEXC:COWUSDT.P"
+    assert build_tradingview_url("bybit", "HYPE/USDT:USDT") == \
+        "https://www.tradingview.com/chart/?symbol=BYBIT:HYPEUSDT.P"
+
+
+def test_dex_url():
+    assert build_dex_url("COW/USDT:USDT") == "https://dexscreener.com/search?q=COW"
 
 
 def test_mexc_futures_url():

@@ -34,6 +34,20 @@ def build_market_url(exchange: str, symbol: str) -> str:
     return f"https://www.tradingview.com/chart/?symbol={pair.replace('/', '')}"
 
 
+def build_tradingview_url(exchange: str, symbol: str) -> str:
+    """TradingView chart for the perpetual (…USDT.P), prefixed by the exchange."""
+    pair = symbol.split(":")[0].replace("/", "")     # 'BTC/USDT:USDT' -> 'BTCUSDT'
+    ex = "MEXC" if exchange.lower() == "mexc" else \
+         "BYBIT" if exchange.lower() == "bybit" else exchange.upper()
+    return f"https://www.tradingview.com/chart/?symbol={ex}:{pair}.P"
+
+
+def build_dex_url(symbol: str) -> str:
+    """Dexscreener search by the base token (no on-chain address needed)."""
+    base = symbol.split("/")[0]                       # 'COW/USDT:USDT' -> 'COW'
+    return f"https://dexscreener.com/search?q={base}"
+
+
 def _fmt(price: float) -> str:
     """Price formatting that copes with both BTC (64,230) and memecoins (0.00001234)."""
     ap = abs(price)
@@ -108,14 +122,18 @@ class TelegramController:
     # ------------------------------------------------------------------ #
     async def send_alert(self, sig: Signal) -> None:
         text = format_alert(sig)
-        url = build_market_url(sig.exchange, sig.symbol)
+        ex_url = build_market_url(sig.exchange, sig.symbol)
+        tv_url = build_tradingview_url(sig.exchange, sig.symbol)
+        dex_url = build_dex_url(sig.symbol)
         if not self.enabled or not self.app:
-            log.info("[ALERT]\n%s\n%s", text, url)
+            log.info("[ALERT]\n%s\n%s | %s | %s", text, ex_url, tv_url, dex_url)
             return
         try:
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton(f"📈 {sig.exchange.upper()}", url=url)
+                InlineKeyboardButton(f"📈 {sig.exchange.upper()}", url=ex_url),
+                InlineKeyboardButton("📊 TradingView", url=tv_url),
+                InlineKeyboardButton("🔍 DEX", url=dex_url),
             ]])
             await self.app.bot.send_message(chat_id=self.chat_id, text=text, reply_markup=kb)
         except Exception:  # noqa: BLE001
