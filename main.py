@@ -71,7 +71,7 @@ async def scan_market(state: AppState, feed: DataFeed, exchange: str, symbol: st
     if last is None:
         state.last_ts[key] = candles[-1].ts
         if not state.paused:
-            await _maybe_detect(state, candles, exchange, symbol, tf)
+            await _maybe_detect(state, feed, candles, exchange, symbol, tf)
         return
 
     for idx, c in enumerate(candles):
@@ -85,12 +85,12 @@ async def scan_market(state: AppState, feed: DataFeed, exchange: str, symbol: st
                      t.r_multiple, t.bars_held)
         # 2) detect (unless paused, and only if this market has no position)
         if not state.paused and not executor.has_position(key):
-            await _maybe_detect(state, candles[: idx + 1], exchange, symbol, tf)
+            await _maybe_detect(state, feed, candles[: idx + 1], exchange, symbol, tf)
 
     state.last_ts[key] = candles[-1].ts
 
 
-async def _maybe_detect(state: AppState, window, exchange: str, symbol: str, tf: str) -> None:
+async def _maybe_detect(state: AppState, feed: DataFeed, window, exchange: str, symbol: str, tf: str) -> None:
     cfg = state.cfg
     ind = compute_indicators(window, cfg["detector"])
     if ind is None:
@@ -99,6 +99,11 @@ async def _maybe_detect(state: AppState, window, exchange: str, symbol: str, tf:
     sig = detect(window, ind, cfg)
     if sig is None:
         return
+    # enrich the alert with ~24h turnover (from candles) and a live spot price
+    bars_24h = max(1, round(86_400_000 / timeframe_ms(tf)))
+    recent = window[-bars_24h:]
+    sig.volume_24h = sum(c.volume * c.close for c in recent)
+    sig.spot_price = await feed.fetch_spot_price(exchange, symbol)
     state.executor.register_signal(sig)
     log.info("SIGNAL %s %s %s rr=%.2f stop=%.4f target=%.4f",
              exchange, symbol, sig.side.value, sig.rr, sig.stop_price, sig.target_price)

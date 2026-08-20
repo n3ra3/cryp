@@ -47,6 +47,20 @@ def test_open_trade_survives_restart(tmp_path, cfg):
     j3.close()
 
 
+def test_delete_trades_not_in(tmp_path, cfg):
+    db = os.path.join(tmp_path, "j.sqlite")
+    j = Journal(db)
+    for tf in ["5m", "15m", "1h", "4h"]:
+        t = build_trade(_short_signal(), 100.0, cfg)
+        t.timeframe = tf
+        j.insert_trade(t)
+    removed = j.delete_trades_not_in(["1h", "4h"])
+    assert removed == 2                       # 5m + 15m deleted
+    left = {t.timeframe for t in j.all_trades()}
+    assert left == {"1h", "4h"}
+    j.close()
+
+
 def test_csv_export(tmp_path, cfg):
     db = os.path.join(tmp_path, "j.sqlite")
     j = Journal(db)

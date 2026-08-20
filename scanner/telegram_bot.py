@@ -60,6 +60,17 @@ def _fmt(price: float) -> str:
     return f"{price:.8f}"
 
 
+def _fmt_vol(v: float) -> str:
+    """Turnover as $2.2M / $958K / $12.3K."""
+    if v >= 1e9:
+        return f"${v/1e9:.1f}B"
+    if v >= 1e6:
+        return f"${v/1e6:.1f}M"
+    if v >= 1e3:
+        return f"${v/1e3:.0f}K"
+    return f"${v:.0f}"
+
+
 def format_alert(sig: Signal) -> str:
     arrow = "🔴 SHORT" if sig.side is Side.SHORT else "🟢 LONG"
     disp_symbol = sig.symbol.split(":")[0]   # 'BTC/USDT:USDT' -> 'BTC/USDT'
@@ -69,7 +80,7 @@ def format_alert(sig: Signal) -> str:
     stop_pct = abs(sig.stop_price - price) / price * 100 if price else 0.0
     tgt_pct = abs(sig.target_price - price) / price * 100 if price else 0.0
     fib = "0.5"
-    return (
+    text = (
         f"⚡ {arrow} — {disp_symbol} ({sig.exchange}, {sig.timeframe})\n"
         f"Price: {_fmt(price)} | RSI {sig.rsi_at_signal:.0f}\n"
         f"Спайк: {sig.impulse_pct*100:.1f}% | растяжение {sig.stretch_atr:.1f}×ATR\n"
@@ -78,6 +89,15 @@ def format_alert(sig: Signal) -> str:
         f"Target({fib}): {_fmt(sig.target_price)} ({tgt_pct:.2f}%)\n"
         f"R:R ≈ {sig.rr:.1f}"
     )
+    ctx = []
+    if sig.spot_price:
+        spot_off = (price - sig.spot_price) / sig.spot_price * 100
+        ctx.append(f"Спот: {_fmt(sig.spot_price)} ({spot_off:+.2f}%)")
+    if sig.volume_24h:
+        ctx.append(f"Vol24h: {_fmt_vol(sig.volume_24h)}")
+    if ctx:
+        text += "\n" + " | ".join(ctx)
+    return text
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +125,7 @@ class TelegramController:
         self.app.add_handler(CommandHandler("pause", self._cmd_pause))
         self.app.add_handler(CommandHandler("resume", self._cmd_resume))
         self.app.add_handler(CommandHandler("export", self._cmd_export))
+        self.app.add_handler(CommandHandler("cleanup", self._cmd_cleanup))
         await self.app.initialize()
         await self.app.start()
         await self.app.updater.start_polling(drop_pending_updates=True)
@@ -183,6 +204,15 @@ class TelegramController:
             return
         self.state.paused = False
         await update.message.reply_text("▶️ scanning resumed.")
+
+    async def _cmd_cleanup(self, update, _ctx) -> None:
+        if not self._authorized(update):
+            return
+        keep = self.state.cfg["timeframes"]
+        n = self.state.journal.delete_trades_not_in(keep)
+        await update.message.reply_text(
+            f"🧹 Удалено {n} старых сделок с чужими ТФ. В журнале осталось только {keep}."
+        )
 
     async def _cmd_export(self, update, _ctx) -> None:
         if not self._authorized(update):

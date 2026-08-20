@@ -128,6 +128,19 @@ class DataFeed:
         # ccxt unified symbols are already 'BASE/QUOTE'; keep a hook for overrides.
         return symbol.strip().upper()
 
+    async def fetch_spot_price(self, exchange_id: str, symbol: str):
+        """Live spot last-price for the perp's base pair, or None. Best-effort:
+        'BTC/USDT:USDT' -> spot 'BTC/USDT'. Never raises."""
+        ex = self.exchanges.get(exchange_id)
+        if ex is None:
+            return None
+        spot_sym = symbol.split(":")[0]
+        try:
+            t = await ex.fetch_ticker(spot_sym)
+            return t.get("last")
+        except Exception:  # noqa: BLE001
+            return None
+
     async def discover_symbols(self, exchange_id: str, uni_cfg: dict) -> list[str]:
         """Auto-select the liquid universe for one exchange (public data only).
 

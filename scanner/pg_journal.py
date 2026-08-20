@@ -139,6 +139,17 @@ class PgJournal:
         rows = self._run(q, fetch="all") or []
         return [Journal._row_to_trade(r) for r in rows]
 
+    def delete_trades_not_in(self, timeframes: list[str]) -> int:
+        if not timeframes:
+            return 0
+        ph = ",".join(["%s"] * len(timeframes))
+        row = self._run(
+            f"SELECT count(*) AS c FROM trades WHERE timeframe NOT IN ({ph})",
+            tuple(timeframes), fetch="one")
+        n = row["c"] if row else 0
+        self._run(f"DELETE FROM trades WHERE timeframe NOT IN ({ph})", tuple(timeframes))
+        return int(n)
+
     def export_csv(self, path: str) -> str:
         parent = os.path.dirname(path)
         if parent:

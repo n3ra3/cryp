@@ -97,6 +97,8 @@ class Signal:
     stretch_atr: float          # (close - EMA) / ATR, absolute value
     rr: float                   # approximate reward:risk using signal_close as entry
     impulse_pct: float = 0.0    # size of the impulse leg as a fraction (the "spike")
+    volume_24h: float = 0.0     # ~24h quote turnover (USD), from candles
+    spot_price: Optional[float] = None  # live spot price at alert time (context)
 
     def to_raw_json(self) -> str:
         d = asdict(self)

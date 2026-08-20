@@ -38,3 +38,16 @@ def test_alert_contains_key_fields():
     text = format_alert(sig)
     assert "SHORT" in text and "COW/USDT" in text and "4h" in text
     assert "61" in text          # spike %
+
+
+def test_alert_shows_spot_and_volume():
+    sig = Signal(
+        exchange="mexc", symbol="COW/USDT:USDT", timeframe="4h", side=Side.SHORT,
+        signal_ts=0, signal_close=0.1495, stop_price=0.1627, target_price=0.1313,
+        partial_target=0.14, swing_level=0.16, swing_origin=0.099,
+        rsi_at_signal=72, atr_at_signal=0.004, stretch_atr=3.1, rr=1.4,
+        impulse_pct=0.61, volume_24h=2_210_000, spot_price=0.1520,
+    )
+    text = format_alert(sig)
+    assert "Спот" in text and "0.152000" in text
+    assert "Vol24h" in text and "$2.2M" in text

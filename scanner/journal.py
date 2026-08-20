@@ -146,6 +146,17 @@ class Journal:
         t.closed = bool(r["closed"])
         return t
 
+    def delete_trades_not_in(self, timeframes: list[str]) -> int:
+        """Delete trades whose timeframe is not in `timeframes`. Returns count."""
+        if not timeframes:
+            return 0
+        ph = ",".join("?" * len(timeframes))
+        cur = self.conn.execute(
+            f"DELETE FROM trades WHERE timeframe NOT IN ({ph})", tuple(timeframes)
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     # ------------------------------------------------------------------ #
     def export_csv(self, path: str) -> str:
         parent = os.path.dirname(path)
