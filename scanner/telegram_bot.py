@@ -22,6 +22,18 @@ log = logging.getLogger("telegram")
 # --------------------------------------------------------------------------- #
 #  Pure formatter (unit-testable, no network)
 # --------------------------------------------------------------------------- #
+def build_market_url(exchange: str, symbol: str) -> str:
+    """Direct link to the perpetual's trading page on the exchange.
+    'BTC/USDT:USDT' -> MEXC 'BTC_USDT', Bybit 'BTCUSDT'."""
+    pair = symbol.split(":")[0]          # 'BTC/USDT:USDT' -> 'BTC/USDT'
+    ex = exchange.lower()
+    if ex == "mexc":
+        return f"https://futures.mexc.com/exchange/{pair.replace('/', '_')}"
+    if ex == "bybit":
+        return f"https://www.bybit.com/trade/usdt/{pair.replace('/', '')}"
+    return f"https://www.tradingview.com/chart/?symbol={pair.replace('/', '')}"
+
+
 def _fmt(price: float) -> str:
     """Price formatting that copes with both BTC (64,230) and memecoins (0.00001234)."""
     ap = abs(price)
@@ -96,11 +108,16 @@ class TelegramController:
     # ------------------------------------------------------------------ #
     async def send_alert(self, sig: Signal) -> None:
         text = format_alert(sig)
+        url = build_market_url(sig.exchange, sig.symbol)
         if not self.enabled or not self.app:
-            log.info("[ALERT]\n%s", text)
+            log.info("[ALERT]\n%s\n%s", text, url)
             return
         try:
-            await self.app.bot.send_message(chat_id=self.chat_id, text=text)
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"📈 {sig.exchange.upper()}", url=url)
+            ]])
+            await self.app.bot.send_message(chat_id=self.chat_id, text=text, reply_markup=kb)
         except Exception:  # noqa: BLE001
             log.exception("failed to send telegram alert")
 
