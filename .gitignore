@@ -9,3 +9,6 @@ venv/
 # runtime data (keep the folder, ignore its contents)
 data/*
 !data/.gitkeep
+
+# Syncthing markers
+.stfolder/

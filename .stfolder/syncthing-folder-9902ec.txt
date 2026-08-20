@@ -1,5 +1,0 @@
-# This directory is a Syncthing folder marker.
-# Do not delete.
-
-folderID: pds3x-cmf4r
-created: 2026-08-20T13:22:43+03:00
